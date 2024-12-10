@@ -1,10 +1,8 @@
+use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 use dirs::data_local_dir;
 use rusqlite::{params, Connection, OpenFlags};
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-};
+use std::{ffi::OsString, path::PathBuf};
 
 use encryption_algos::aes256_gcm;
 
@@ -40,7 +38,7 @@ struct Args {
     passphrase: String,
 }
 
-pub fn create_db() -> Result<PathBuf, rusqlite::Error> {
+pub fn create_db() -> Result<String> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
@@ -61,10 +59,11 @@ pub fn create_db() -> Result<PathBuf, rusqlite::Error> {
     )?;
 
     // Return path of DB for logging purposes
+    let db_path: String = db_path.to_string_lossy().to_string();
     Ok(db_path)
 }
 
-pub fn open_db() -> Result<Connection, rusqlite::Error> {
+pub fn open_db() -> Result<Connection> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
@@ -79,14 +78,8 @@ pub fn open_db() -> Result<Connection, rusqlite::Error> {
     Ok(conn)
 }
 
-pub fn get_passphrase(file: String) -> Result<String, rusqlite::Error> {
-    let conn = match open_db() {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("[-] Unable to open DB: {e}");
-            panic!();
-        }
-    };
+pub fn get_passphrase(file: String) -> Result<String> {
+    let conn = open_db()?;
 
     let file = PathBuf::from(file);
     let file = file.file_name().unwrap().to_str().to_owned().unwrap();
@@ -97,36 +90,38 @@ pub fn get_passphrase(file: String) -> Result<String, rusqlite::Error> {
         |row| row.get(0),
     );
 
-    row
+    Ok(row?)
 }
 
-pub fn store_entry(file: OsString, argon_pch: String) {
+pub fn store_entry(file: OsString, argon_pch: String) -> Result<()> {
     match open_db() {
         Ok(conn) => {
             conn.execute(
                 "insert into passphrases (file, pch) values (?1, ?2)",
                 params![file.to_string_lossy(), argon_pch],
-            )
-            .unwrap();
+            )?;
         }
         Err(e) => {
-            eprintln!("[-] Unable to open database: {}", e);
-            return;
+            eprintln!("[-] Unable to open database: {e}");
+            return Err(e);
         }
     }
+
+    Ok(())
 }
 
-pub fn remove_entry(file: String) {
+pub fn remove_entry(file: String) -> Result<()> {
     match open_db() {
         Ok(conn) => {
-            conn.execute("delete from passphrases where file = ?1", params![file])
-                .unwrap();
+            conn.execute("delete from passphrases where file = ?1", params![file])?;
         }
         Err(e) => {
             eprintln!("[-] Unable to open database: {}", e);
-            return;
+            return Err(e);
         }
     }
+
+    Ok(())
 }
 
 pub fn check_for_db() -> bool {
@@ -142,11 +137,14 @@ pub fn check_for_db() -> bool {
     match Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(_) => true,
         Err(e) if e.sqlite_error_code().unwrap() == rusqlite::ErrorCode::CannotOpen => false,
-        Err(_) => true,
+        Err(e) => {
+            eprintln!("[-] Error while checking for existence of database: {e}");
+            panic!();
+        }
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
 
     // If database does not exit already, create it
@@ -158,20 +156,62 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("[-] Failed at creating database: {e}");
-                return;
+                return Err(anyhow!("Database error"));
             }
         }
     }
 
     match args.command {
         Command::Encrypt => {
-            let (file_path, argon_pch) = aes256_gcm::encrypt_file(args.file, args.passphrase);
-            store_entry(file_path, argon_pch);
+            let (file_path, argon_pch) = match aes256_gcm::encrypt_file(args.file, args.passphrase)
+            {
+                Ok((path, argon_pch)) => {
+                    println!("[+] Encrypted file written to {path:?}");
+                    (path, argon_pch)
+                }
+                Err(e) => {
+                    eprintln!("[-] Error while encrypting: {e}");
+                    return Err(anyhow!("Encryption error"));
+                }
+            };
+            match store_entry(file_path, argon_pch) {
+                Ok(_) => {
+                    println!("[+] Successfully stored file/passphrase pair in database");
+                }
+                Err(e) => {
+                    eprintln!("[-] Error while storing file/passphrase: {e}");
+                    panic!();
+                }
+            }
         }
         Command::Decrypt => {
-            let expected_hash = get_passphrase(args.file.clone()).unwrap();
-            aes256_gcm::decrypt_file(args.file.clone(), args.passphrase, expected_hash);
-            remove_entry(args.file);
+            let expected_hash = match get_passphrase(args.file.clone()) {
+                Ok(expected_hash) => expected_hash,
+                Err(e) => {
+                    eprintln!("[-] Unable to get hash from database: {e}");
+                    return Err(anyhow!("Hash retrieval error"));
+                }
+            };
+            match aes256_gcm::decrypt_file(args.file.clone(), args.passphrase, expected_hash) {
+                Ok(_) => {
+                    println!("[+] {} has been successfully decrypted", args.file.clone());
+                }
+                Err(e) => {
+                    eprintln!("[-] Unable to decrypt file: {e}");
+                    return Err(anyhow!("Decryption error"));
+                }
+            }
+            match remove_entry(args.file) {
+                Ok(_) => {
+                    println!("[+] Used up file/passphrase pair removed from database");
+                }
+                Err(e) => {
+                    eprintln!("[-] Unable to remove file/passphrase pair from database: {e}");
+                    panic!();
+                }
+            }
         }
     }
+
+    Ok(())
 }

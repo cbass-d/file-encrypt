@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 aes-gcm = "0.10.3"
+anyhow = "1.0.94"
 argon2 = { version = "0.5.3", features = ["password-hash"] }
 b64 = "0.4.0"
 base64 = "0.22.1"
