@@ -4,7 +4,7 @@ use dirs::data_local_dir;
 use rusqlite::{params, Connection, OpenFlags};
 use std::{ffi::OsString, path::PathBuf};
 
-use encryption_algos::aes256_gcm;
+use encryption_algos::{aes256_gcm, chacha20_poly};
 
 mod encryption_algos;
 mod hash_algos;
@@ -18,6 +18,7 @@ enum Command {
 #[derive(ValueEnum, Debug, Clone)]
 enum Algorithm {
     AES256Gcm,
+    Chacha20Poly,
 }
 
 #[derive(Parser, Debug)]
@@ -163,24 +164,51 @@ fn main() -> Result<()> {
 
     match args.command {
         Command::Encrypt => {
-            let (file_path, argon_pch) = match aes256_gcm::encrypt_file(args.file, args.passphrase)
-            {
-                Ok((path, argon_pch)) => {
-                    println!("[+] Encrypted file written to {path:?}");
-                    (path, argon_pch)
+            println!("[*] Encrypting file...");
+            match args.algorithm {
+                Algorithm::AES256Gcm => {
+                    let (file_path, argon_pch) =
+                        match aes256_gcm::encrypt_file(args.file, args.passphrase) {
+                            Ok((path, argon_pch)) => {
+                                println!("[+] Encrypted file written to {path:?}");
+                                (path, argon_pch)
+                            }
+                            Err(e) => {
+                                eprintln!("[-] Error while encrypting: {e}");
+                                return Err(anyhow!("Encryption error"));
+                            }
+                        };
+                    match store_entry(file_path, argon_pch) {
+                        Ok(_) => {
+                            println!("[+] Successfully stored file/passphrase pair in database");
+                        }
+                        Err(e) => {
+                            eprintln!("[-] Error while storing file/passphrase: {e}");
+                            panic!();
+                        }
+                    }
                 }
-                Err(e) => {
-                    eprintln!("[-] Error while encrypting: {e}");
-                    return Err(anyhow!("Encryption error"));
-                }
-            };
-            match store_entry(file_path, argon_pch) {
-                Ok(_) => {
-                    println!("[+] Successfully stored file/passphrase pair in database");
-                }
-                Err(e) => {
-                    eprintln!("[-] Error while storing file/passphrase: {e}");
-                    panic!();
+                Algorithm::Chacha20Poly => {
+                    let (file_path, argon_pch) =
+                        match chacha20_poly::encrypt_file(args.file, args.passphrase) {
+                            Ok((path, argon_pch)) => {
+                                println!("[+] Encrypted file written to {path:?}");
+                                (path, argon_pch)
+                            }
+                            Err(e) => {
+                                eprintln!("[-] Error while encrypting: {e}");
+                                return Err(anyhow!("Encryption error"));
+                            }
+                        };
+                    match store_entry(file_path, argon_pch) {
+                        Ok(_) => {
+                            println!("[+] Successfully stored file/passphrase pair in database");
+                        }
+                        Err(e) => {
+                            eprintln!("[-] Error while storing file/passphrase: {e}");
+                            panic!();
+                        }
+                    }
                 }
             }
         }
@@ -192,22 +220,59 @@ fn main() -> Result<()> {
                     return Err(anyhow!("Hash retrieval error"));
                 }
             };
-            match aes256_gcm::decrypt_file(args.file.clone(), args.passphrase, expected_hash) {
-                Ok(_) => {
-                    println!("[+] {} has been successfully decrypted", args.file.clone());
+            println!("[*] Decrypting file...");
+            match args.algorithm {
+                Algorithm::AES256Gcm => {
+                    match aes256_gcm::decrypt_file(
+                        args.file.clone(),
+                        args.passphrase,
+                        expected_hash,
+                    ) {
+                        Ok(_) => {
+                            println!("[+] {} has been successfully decrypted", args.file.clone());
+                        }
+                        Err(e) => {
+                            eprintln!("[-] Unable to decrypt file: {e}");
+                            return Err(anyhow!("Decryption error"));
+                        }
+                    }
+                    match remove_entry(args.file) {
+                        Ok(_) => {
+                            println!("[+] Used up file/passphrase pair removed from database");
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[-] Unable to remove file/passphrase pair from database: {e}"
+                            );
+                            panic!();
+                        }
+                    }
                 }
-                Err(e) => {
-                    eprintln!("[-] Unable to decrypt file: {e}");
-                    return Err(anyhow!("Decryption error"));
-                }
-            }
-            match remove_entry(args.file) {
-                Ok(_) => {
-                    println!("[+] Used up file/passphrase pair removed from database");
-                }
-                Err(e) => {
-                    eprintln!("[-] Unable to remove file/passphrase pair from database: {e}");
-                    panic!();
+                Algorithm::Chacha20Poly => {
+                    match chacha20_poly::decrypt_file(
+                        args.file.clone(),
+                        args.passphrase,
+                        expected_hash,
+                    ) {
+                        Ok(_) => {
+                            println!("[+] {} has been successfully decrypted", args.file.clone());
+                        }
+                        Err(e) => {
+                            eprintln!("[-] Unable to decrypt file: {e}");
+                            return Err(anyhow!("Decryption error"));
+                        }
+                    }
+                    match remove_entry(args.file) {
+                        Ok(_) => {
+                            println!("[+] Used up file/passphrase pair removed from database");
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[-] Unable to remove file/passphrase pair from database: {e}"
+                            );
+                            panic!();
+                        }
+                    }
                 }
             }
         }
