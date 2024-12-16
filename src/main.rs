@@ -37,6 +37,10 @@ struct Args {
 
     // Passphrase to use for key derivation
     passphrase: String,
+
+    // Name of output file
+    #[arg(short)]
+    output: String,
 }
 
 fn create_db() -> Result<String> {
@@ -159,14 +163,20 @@ fn encryption(
     algorithm: Algorithm,
     file_path: String,
     passphrase: String,
+    output_file: String,
 ) -> Result<(OsString, String)> {
     match algorithm {
-        Algorithm::AES256Gcm => aes256_gcm::encrypt_file(file_path, passphrase),
-        Algorithm::Chacha20Poly => chacha20_poly::encrypt_file(file_path, passphrase),
+        Algorithm::AES256Gcm => aes256_gcm::encrypt_file(file_path, passphrase, output_file),
+        Algorithm::Chacha20Poly => chacha20_poly::encrypt_file(file_path, passphrase, output_file),
     }
 }
 
-fn decryption(algorithm: Algorithm, file_path: String, passphrase: String) -> Result<()> {
+fn decryption(
+    algorithm: Algorithm,
+    file_path: String,
+    passphrase: String,
+    output_file: String,
+) -> Result<()> {
     let expected_hash = match get_passphrase(file_path.clone()) {
         Ok(expected_hash) => expected_hash,
         Err(e) => {
@@ -176,9 +186,11 @@ fn decryption(algorithm: Algorithm, file_path: String, passphrase: String) -> Re
     };
 
     match algorithm {
-        Algorithm::AES256Gcm => aes256_gcm::decrypt_file(file_path, passphrase, expected_hash),
+        Algorithm::AES256Gcm => {
+            aes256_gcm::decrypt_file(file_path, passphrase, expected_hash, output_file)
+        }
         Algorithm::Chacha20Poly => {
-            chacha20_poly::decrypt_file(file_path, passphrase, expected_hash)
+            chacha20_poly::decrypt_file(file_path, passphrase, expected_hash, output_file)
         }
     }
 }
@@ -203,14 +215,14 @@ fn main() -> Result<()> {
     match args.command {
         Command::Encrypt => {
             println!("[*] Encrypting file...");
-            let (new_file, argon_pch) = match encryption(args.algorithm, args.file, args.passphrase)
-            {
-                Ok((new_file, argon_pch)) => (new_file, argon_pch),
-                Err(e) => {
-                    eprintln!("[-] Unable to encrypt file");
-                    return Err(anyhow!(e));
-                }
-            };
+            let (new_file, argon_pch) =
+                match encryption(args.algorithm, args.file, args.passphrase, args.output) {
+                    Ok((new_file, argon_pch)) => (new_file, argon_pch),
+                    Err(e) => {
+                        eprintln!("[-] Unable to encrypt file");
+                        return Err(anyhow!(e));
+                    }
+                };
             println!("[+] File encrypted at {0:?}", new_file);
 
             println!("[*] Storing passphrase has in database...");
@@ -219,7 +231,12 @@ fn main() -> Result<()> {
         }
         Command::Decrypt => {
             println!("[*] Decrypting file...");
-            match decryption(args.algorithm, args.file.clone(), args.passphrase) {
+            match decryption(
+                args.algorithm,
+                args.file.clone(),
+                args.passphrase,
+                args.output,
+            ) {
                 Ok(()) => {}
                 Err(e) => {
                     eprintln!("[-] Failed to decrypt file");

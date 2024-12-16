@@ -10,7 +10,11 @@ use std::{ffi::OsString, fs, path::PathBuf};
 
 use crate::hash_algos::argon_hash;
 
-pub fn encrypt_file(file_path: String, passphrase: String) -> Result<(OsString, String)> {
+pub fn encrypt_file(
+    file_path: String,
+    passphrase: String,
+    output_file: String,
+) -> Result<(OsString, String)> {
     // Hash passphrase
     let argon_pch: String = argon_hash::hash_passphrase(passphrase);
     let hash = PasswordHash::new(&argon_pch).unwrap();
@@ -47,14 +51,18 @@ pub fn encrypt_file(file_path: String, passphrase: String) -> Result<(OsString, 
     nonce_and_data.append(&mut enc_data);
 
     // Write out encrypted data to new file path
-    let new_file = file_path + ".enc";
-    let new_file = PathBuf::from(new_file).into_os_string();
+    let new_file = PathBuf::from(output_file);
     fs::write(new_file.clone(), nonce_and_data)?;
 
-    Ok((new_file, argon_pch))
+    Ok((new_file.into(), argon_pch))
 }
 
-pub fn decrypt_file(file_path: String, passphrase: String, expected_pch: String) -> Result<()> {
+pub fn decrypt_file(
+    file_path: String,
+    passphrase: String,
+    expected_pch: String,
+    output_file: String,
+) -> Result<()> {
     // Verify provided passphrase
     let (res, hash_opt) = argon_hash::check_hash(passphrase, expected_pch);
     if res == false {
@@ -87,8 +95,7 @@ pub fn decrypt_file(file_path: String, passphrase: String, expected_pch: String)
         }
     };
 
-    // Write out plaintext data
-    let new_file = file_path.replace(".enc", "");
+    let new_file = PathBuf::from(output_file);
     fs::write(new_file, plain_data)?;
 
     Ok(())
