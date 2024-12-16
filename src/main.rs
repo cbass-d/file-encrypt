@@ -39,7 +39,7 @@ struct Args {
     passphrase: String,
 }
 
-pub fn create_db() -> Result<String> {
+fn create_db() -> Result<String> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
@@ -59,12 +59,14 @@ pub fn create_db() -> Result<String> {
         [],
     )?;
 
+    let _ = conn.close();
+
     // Return path of DB for logging purposes
     let db_path: String = db_path.to_string_lossy().to_string();
     Ok(db_path)
 }
 
-pub fn open_db() -> Result<Connection> {
+fn open_db() -> Result<Connection> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
@@ -79,7 +81,7 @@ pub fn open_db() -> Result<Connection> {
     Ok(conn)
 }
 
-pub fn get_passphrase(file: String) -> Result<String> {
+fn get_passphrase(file: String) -> Result<String> {
     let conn = open_db()?;
 
     let file = PathBuf::from(file);
@@ -91,19 +93,23 @@ pub fn get_passphrase(file: String) -> Result<String> {
         |row| row.get(0),
     );
 
+    let _ = conn.close();
+
     Ok(row?)
 }
 
-pub fn store_entry(file: OsString, argon_pch: String) -> Result<()> {
+fn store_entry(file: OsString, argon_pch: String) -> Result<()> {
     match open_db() {
         Ok(conn) => {
             conn.execute(
                 "insert into passphrases (file, pch) values (?1, ?2)",
                 params![file.to_string_lossy(), argon_pch],
             )?;
+
+            let _ = conn.close();
         }
         Err(e) => {
-            eprintln!("[-] Unable to open database: {e}");
+            eprintln!("[-] Unable to open database");
             return Err(e);
         }
     }
@@ -111,13 +117,15 @@ pub fn store_entry(file: OsString, argon_pch: String) -> Result<()> {
     Ok(())
 }
 
-pub fn remove_entry(file: String) -> Result<()> {
+fn remove_entry(file: String) -> Result<()> {
     match open_db() {
         Ok(conn) => {
             conn.execute("delete from passphrases where file = ?1", params![file])?;
+
+            let _ = conn.close();
         }
         Err(e) => {
-            eprintln!("[-] Unable to open database: {}", e);
+            eprintln!("[-] Unable to open database");
             return Err(e);
         }
     }
@@ -125,7 +133,7 @@ pub fn remove_entry(file: String) -> Result<()> {
     Ok(())
 }
 
-pub fn check_for_db() -> bool {
+fn check_for_db() -> bool {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
@@ -135,12 +143,42 @@ pub fn check_for_db() -> bool {
         None => PathBuf::from("../lockbox_data"),
     };
 
+    // Must specify flag so rusqlite does not create DB if it does not exist
+    // Creation of DB is done elsewhere
     match Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
         Ok(_) => true,
         Err(e) if e.sqlite_error_code().unwrap() == rusqlite::ErrorCode::CannotOpen => false,
         Err(e) => {
             eprintln!("[-] Error while checking for existence of database: {e}");
             panic!();
+        }
+    }
+}
+
+fn encryption(
+    algorithm: Algorithm,
+    file_path: String,
+    passphrase: String,
+) -> Result<(OsString, String)> {
+    match algorithm {
+        Algorithm::AES256Gcm => aes256_gcm::encrypt_file(file_path, passphrase),
+        Algorithm::Chacha20Poly => chacha20_poly::encrypt_file(file_path, passphrase),
+    }
+}
+
+fn decryption(algorithm: Algorithm, file_path: String, passphrase: String) -> Result<()> {
+    let expected_hash = match get_passphrase(file_path.clone()) {
+        Ok(expected_hash) => expected_hash,
+        Err(e) => {
+            eprintln!("[-] Unable to get hash from database");
+            return Err(e);
+        }
+    };
+
+    match algorithm {
+        Algorithm::AES256Gcm => aes256_gcm::decrypt_file(file_path, passphrase, expected_hash),
+        Algorithm::Chacha20Poly => {
+            chacha20_poly::decrypt_file(file_path, passphrase, expected_hash)
         }
     }
 }
@@ -165,116 +203,34 @@ fn main() -> Result<()> {
     match args.command {
         Command::Encrypt => {
             println!("[*] Encrypting file...");
-            match args.algorithm {
-                Algorithm::AES256Gcm => {
-                    let (file_path, argon_pch) =
-                        match aes256_gcm::encrypt_file(args.file, args.passphrase) {
-                            Ok((path, argon_pch)) => {
-                                println!("[+] Encrypted file written to {path:?}");
-                                (path, argon_pch)
-                            }
-                            Err(e) => {
-                                eprintln!("[-] Error while encrypting: {e}");
-                                return Err(anyhow!("Encryption error"));
-                            }
-                        };
-                    match store_entry(file_path, argon_pch) {
-                        Ok(_) => {
-                            println!("[+] Successfully stored file/passphrase pair in database");
-                        }
-                        Err(e) => {
-                            eprintln!("[-] Error while storing file/passphrase: {e}");
-                            panic!();
-                        }
-                    }
-                }
-                Algorithm::Chacha20Poly => {
-                    let (file_path, argon_pch) =
-                        match chacha20_poly::encrypt_file(args.file, args.passphrase) {
-                            Ok((path, argon_pch)) => {
-                                println!("[+] Encrypted file written to {path:?}");
-                                (path, argon_pch)
-                            }
-                            Err(e) => {
-                                eprintln!("[-] Error while encrypting: {e}");
-                                return Err(anyhow!("Encryption error"));
-                            }
-                        };
-                    match store_entry(file_path, argon_pch) {
-                        Ok(_) => {
-                            println!("[+] Successfully stored file/passphrase pair in database");
-                        }
-                        Err(e) => {
-                            eprintln!("[-] Error while storing file/passphrase: {e}");
-                            panic!();
-                        }
-                    }
-                }
-            }
-        }
-        Command::Decrypt => {
-            let expected_hash = match get_passphrase(args.file.clone()) {
-                Ok(expected_hash) => expected_hash,
+            let (new_file, argon_pch) = match encryption(args.algorithm, args.file, args.passphrase)
+            {
+                Ok((new_file, argon_pch)) => (new_file, argon_pch),
                 Err(e) => {
-                    eprintln!("[-] Unable to get hash from database: {e}");
-                    return Err(anyhow!("Hash retrieval error"));
+                    eprintln!("[-] Unable to encrypt file");
+                    return Err(anyhow!(e));
                 }
             };
+            println!("[+] File encrypted at {0:?}", new_file);
+
+            println!("[*] Storing passphrase has in database...");
+            store_entry(new_file, argon_pch)?;
+            println!("[+] Passhprase stored");
+        }
+        Command::Decrypt => {
             println!("[*] Decrypting file...");
-            match args.algorithm {
-                Algorithm::AES256Gcm => {
-                    match aes256_gcm::decrypt_file(
-                        args.file.clone(),
-                        args.passphrase,
-                        expected_hash,
-                    ) {
-                        Ok(_) => {
-                            println!("[+] {} has been successfully decrypted", args.file.clone());
-                        }
-                        Err(e) => {
-                            eprintln!("[-] Unable to decrypt file: {e}");
-                            return Err(anyhow!("Decryption error"));
-                        }
-                    }
-                    match remove_entry(args.file) {
-                        Ok(_) => {
-                            println!("[+] Used up file/passphrase pair removed from database");
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[-] Unable to remove file/passphrase pair from database: {e}"
-                            );
-                            panic!();
-                        }
-                    }
-                }
-                Algorithm::Chacha20Poly => {
-                    match chacha20_poly::decrypt_file(
-                        args.file.clone(),
-                        args.passphrase,
-                        expected_hash,
-                    ) {
-                        Ok(_) => {
-                            println!("[+] {} has been successfully decrypted", args.file.clone());
-                        }
-                        Err(e) => {
-                            eprintln!("[-] Unable to decrypt file: {e}");
-                            return Err(anyhow!("Decryption error"));
-                        }
-                    }
-                    match remove_entry(args.file) {
-                        Ok(_) => {
-                            println!("[+] Used up file/passphrase pair removed from database");
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "[-] Unable to remove file/passphrase pair from database: {e}"
-                            );
-                            panic!();
-                        }
-                    }
+            match decryption(args.algorithm, args.file.clone(), args.passphrase) {
+                Ok(()) => {}
+                Err(e) => {
+                    eprintln!("[-] Failed to decrypt file");
+                    return Err(e);
                 }
             }
+            println!("[+] File decrypted");
+
+            println!("[*] Removing entry from database...");
+            remove_entry(args.file)?;
+            println!("[+] Entry removed");
         }
     }
 

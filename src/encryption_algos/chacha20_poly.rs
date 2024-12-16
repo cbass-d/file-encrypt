@@ -11,6 +11,7 @@ use std::{ffi::OsString, fs, path::PathBuf};
 use crate::hash_algos::argon_hash;
 
 pub fn encrypt_file(file_path: String, passphrase: String) -> Result<(OsString, String)> {
+    // Hash passphrase
     let argon_pch: String = argon_hash::hash_passphrase(passphrase);
     let hash = PasswordHash::new(&argon_pch).unwrap();
     let hash = match hash.hash {
@@ -34,16 +35,15 @@ pub fn encrypt_file(file_path: String, passphrase: String) -> Result<(OsString, 
         Ok(enc_data) => enc_data,
         Err(e) => {
             let e = e.to_string();
-            eprintln!("[-] Failed to encrypt data: {e}");
-            return Err(anyhow!("Unable to encrypt data"));
+            return Err(anyhow!("Unable to encrypt data: {e}"));
         }
     };
+
     let mut nonce_and_data = nonce.to_vec();
     nonce_and_data.append(&mut enc_data);
 
     let new_file = file_path + ".enc";
     let new_file = PathBuf::from(new_file).into_os_string();
-
     fs::write(new_file.clone(), nonce_and_data)?;
 
     Ok((new_file, argon_pch))
@@ -60,7 +60,6 @@ pub fn decrypt_file(file_path: String, passphrase: String, expected_pch: String)
     let hash = PasswordHash::new(&hash).unwrap();
     let hash = hash.hash.unwrap().to_string();
 
-    // Argon2 hash is encoded in base64
     let hash = BASE64_STANDARD_NO_PAD.decode(hash)?;
 
     // Generate iv, cipher, and key for encryption
@@ -77,16 +76,14 @@ pub fn decrypt_file(file_path: String, passphrase: String, expected_pch: String)
         Ok(data) => data,
         Err(e) => {
             let e = e.to_string();
-            eprintln!("[-] Failed decrypting file: {e}");
-            return Err(anyhow!("Unable to decrypt file"));
+            return Err(anyhow!("Unable to decrypt file: {e}"));
         }
     };
-    let plain = String::from_utf8(plain_data)?;
 
     let new_file = file_path.replace(".enc", "");
     let new_file = PathBuf::from(new_file).into_os_string();
 
-    fs::write(new_file, plain)?;
+    fs::write(new_file, plain_data)?;
 
     Ok(())
 }
