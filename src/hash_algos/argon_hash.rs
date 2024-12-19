@@ -1,3 +1,5 @@
+extern crate argon2;
+
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, SaltString},
     Argon2, PasswordVerifier,

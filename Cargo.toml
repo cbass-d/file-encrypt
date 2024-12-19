@@ -1,9 +1,10 @@
 [package]
-name = "lockbox"
+name = "file-encrypt"
 version = "0.1.0"
+edition = "2021"
 description = "CLI tool for encrypting local files"
 readme = "README.md"
-repository = "https://github.com/cbass-d/lockbox_rust"
+repository = "https://github.com/cbass-d/file-encrypt"
 categories = ["command-line-utilities"]
 
 [dependencies]

@@ -1,4 +1,4 @@
-### LOCKBOX RUST
+### FILE-ENCRYPT
 CLI only rust version of https://github.com/cbass-d/lockbox_cli
 
 ### Usable algorihtms
@@ -7,7 +7,7 @@ CLI only rust version of https://github.com/cbass-d/lockbox_cli
 
 ### Usage
 ```
-Usage: lockbox_rust -o <OUTPUT> <COMMAND> <FILE> <ALGORITHM> <PASSPHRASE>
+Usage: file-encrypt -o <OUTPUT> <COMMAND> <FILE> <ALGORITHM> <PASSPHRASE>
 
 Arguments:
   <COMMAND>     [possible values: encrypt, decrypt]
