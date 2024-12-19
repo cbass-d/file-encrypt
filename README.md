@@ -7,7 +7,6 @@ CLI only rust version of https://github.com/cbass-d/lockbox_cli
 
 ### Usage
 ```
-
 Usage: lockbox_rust -o <OUTPUT> <COMMAND> <FILE> <ALGORITHM> <PASSPHRASE>
 
 Arguments:
@@ -20,7 +19,6 @@ Options:
   -o <OUTPUT>      
   -h, --help       Print help
   -V, --version    Print version
-
 ```
 
 **Must remember passphrase used as only its hash is stored**
