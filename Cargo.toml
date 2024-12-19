@@ -2,6 +2,7 @@
 name = "file-encrypt"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "CLI tool for encrypting local files"
 readme = "README.md"
 repository = "https://github.com/cbass-d/file-encrypt"
