@@ -5,6 +5,12 @@ CLI only rust version of https://github.com/cbass-d/lockbox_cli
 * AES256-Gcm
 * ChaCha20-Poly1305
 
+## Installation
+Can be installed from crates.io using:
+```
+$ cargo install file-encrypt
+```
+
 ### Usage
 ```
 Usage: file-encrypt -o <OUTPUT> <COMMAND> <FILE> <ALGORITHM> <PASSPHRASE>
