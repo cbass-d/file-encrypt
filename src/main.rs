@@ -4,10 +4,7 @@ use dirs::data_local_dir;
 use rusqlite::{params, Connection, OpenFlags};
 use std::{ffi::OsString, path::PathBuf};
 
-use encryption_algos::{aes256_gcm, chacha20_poly};
-
-mod encryption_algos;
-mod hash_algos;
+use file_encrypt::encryption_algos::{aes256_gcm, chacha20_poly};
 
 #[derive(ValueEnum, Clone, Debug)]
 enum Command {
