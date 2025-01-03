@@ -1,3 +1,4 @@
+#[allow(clippy::some_lint)]
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 use dirs::data_local_dir;
@@ -45,10 +46,10 @@ fn create_db() -> Result<String> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
-            db_path.push("lockbox_data");
+            db_path.push("file-encrypt-keys");
             db_path
         }
-        None => PathBuf::from("../lockbox_data"),
+        None => PathBuf::from("../file-encrypt-keys"),
     };
 
     let conn = Connection::open(&db_path)?;
@@ -72,10 +73,10 @@ fn open_db() -> Result<Connection> {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
-            db_path.push("lockbox_data");
+            db_path.push("file-encrypt-keys");
             db_path
         }
-        None => PathBuf::from("../lockbox_data"),
+        None => PathBuf::from("../file-encrypt-keys"),
     };
 
     let conn = Connection::open(&db_path)?;
@@ -141,10 +142,10 @@ fn check_for_db() -> bool {
     let db_path = match data_local_dir() {
         Some(data_dir) => {
             let mut db_path = data_dir;
-            db_path.push("lockbox_data");
+            db_path.push("file-encrypt-keys");
             db_path
         }
-        None => PathBuf::from("../lockbox_data"),
+        None => PathBuf::from("../file-encrypt-data"),
     };
 
     // Must specify flag so rusqlite does not create DB if it does not exist
